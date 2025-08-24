@@ -5,6 +5,7 @@ import com.nps.pollingapi.dto.AuthenticationResponse;
 import com.nps.pollingapi.dto.SignupRequest;
 import com.nps.pollingapi.dto.UserPrincipalDTO;
 import com.nps.pollingapi.entity.UserPrincipal;
+import com.nps.pollingapi.exception.NotFoundException;
 import com.nps.pollingapi.repository.UserPrincipalRepository;
 import com.nps.pollingapi.services.auth.AuthService;
 import com.nps.pollingapi.services.jwt.UserService;
@@ -79,42 +80,26 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody AuthenticationRequest authenticationRequest) {
+        UserPrincipal user = userPrincipalRepository.findFirstByEmail(authenticationRequest.email())
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        try {
-            authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(authenticationRequest.email(), authenticationRequest.password()));
+        authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        authenticationRequest.email(), authenticationRequest.password()
+                )
+        );
 
-            UserDetails userDetails = userService.userDetailsService().loadUserByUsername(authenticationRequest.email());
+        UserDetails userDetails = userService.userDetailsService().loadUserByUsername(authenticationRequest.email());
 
-            Optional<UserPrincipal> firstByEmail = userPrincipalRepository.findFirstByEmail(authenticationRequest.email());
+        String jwt = jwtUtil.generateToken(userDetails, user.getId());
 
-            if (firstByEmail.isPresent()) {
-                UserPrincipal user = firstByEmail.get();
-                String jwt = jwtUtil.generateToken(userDetails, user.getId());
+        AuthenticationResponse response = new AuthenticationResponse(
+                jwt,
+                user.getFirstName() + " " + user.getLastName(),
+                user.getEmail()
+        );
 
-                AuthenticationResponse response = new AuthenticationResponse(
-                        jwt,
-                        user.getFirstName() + " " + user.getLastName(),
-                        user.getEmail()
-                );
-
-                return ResponseEntity.ok(response);
-            }
-
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Collections.singletonMap("error", "User not found."));
-        } catch (BadCredentialsException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Collections.singletonMap("error", "Invalid email or password."));
-        } catch (DisabledException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Collections.singletonMap("error", "User account is disabled."));
-        } catch (UsernameNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Collections.singletonMap("error", "User not found."));
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Collections.singletonMap("error", "An error occurred during login."));
-        }
+        return ResponseEntity.ok(response);
     }
+
 }
